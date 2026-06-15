@@ -88,7 +88,7 @@ body{background:var(--dark);color:var(--text);font-family:'Inter',sans-serif;min
     <div class="scenario-box">
       <div class="scenario-label">🎙 Fight Breakdown</div>
       <div class="scenario-text" id="scenarioText"></div>
-      <button class="tts-btn" id="ttsBtn" onclick="(function(b){const t=document.getElementById(\'scenarioText\');speakScenario(b,t.innerText);})(this)">🔊 Read Aloud</button>
+      <button class="tts-btn" id="ttsBtn" style="display:none" onclick="(function(b){const t=document.getElementById(\'scenarioText\');speakScenario(b,t.innerText);})(this)">🔊 Read Aloud</button>
     </div>
   </div>
 </div>
@@ -205,6 +205,7 @@ document.getElementById('genBtn').addEventListener('click',()=>{
   document.getElementById('nameCpu').textContent=cpu.n;
   document.getElementById('divCpu').textContent=cpu.d;
   document.getElementById('result').style.display='flex';
+  document.getElementById('ttsBtn').style.display='inline-flex';
   const pool2 = activeFilter==='openweight' ? OW_SCENARIOS : SCENARIOS;
   typewrite(document.getElementById('scenarioText'),pool2[Math.floor(Math.random()*pool2.length)]);
 });
@@ -216,19 +217,29 @@ const TTS_URL = 'https://tts-proxy-i1sn.onrender.com';
 let ttsAudio = null;
 
 async function speakScenario(btn, text) {
-  // iOS audio unlock MUST happen before any await
+  // iOS audio unlock MUST happen synchronously before any await
   if (!ttsAudio) {
     ttsAudio = new Audio();
     ttsAudio.play().catch(()=>{});
     ttsAudio.pause();
   }
 
-  // if already playing, stop it
-  if (!ttsAudio.paused) {
+  // stop if already playing
+  if (ttsAudio && !ttsAudio.paused) {
     ttsAudio.pause();
     ttsAudio.currentTime = 0;
     btn.textContent = '🔊 Read Aloud';
     btn.classList.remove('playing');
+    return;
+  }
+
+  // get the actual rendered text from the DOM right now
+  const el = document.getElementById('scenarioText');
+  const actualText = (el ? (el.innerText || el.textContent) : text).trim();
+
+  if (!actualText || actualText.length < 5) {
+    btn.textContent = '⏳ Still generating...';
+    setTimeout(() => { btn.textContent = '🔊 Read Aloud'; }, 1500);
     return;
   }
 
@@ -240,8 +251,9 @@ async function speakScenario(btn, text) {
     const r = await fetch(TTS_URL + '/tts', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({text})
+      body: JSON.stringify({text: actualText})
     });
+    if (!r.ok) throw new Error('Server error ' + r.status);
     const data = await r.json();
     if (data.error) throw new Error(data.error);
 
@@ -250,7 +262,7 @@ async function speakScenario(btn, text) {
       btn.textContent = '🔊 Read Aloud';
       btn.classList.remove('playing');
     };
-    ttsAudio.play();
+    await ttsAudio.play();
     btn.textContent = '⏹ Stop';
     btn.classList.remove('loading');
     btn.classList.add('playing');
@@ -258,6 +270,7 @@ async function speakScenario(btn, text) {
     console.error('TTS error:', e);
     btn.textContent = '🔊 Read Aloud';
     btn.classList.remove('loading','playing');
+    alert('TTS error: ' + e.message);
   } finally {
     btn.disabled = false;
   }
